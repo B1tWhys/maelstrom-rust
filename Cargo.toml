@@ -8,3 +8,5 @@ anyhow = "1.0.104"
 serde = { version = "1.0.229", features = ["derive", "alloc"] }
 serde_json = "1.0.151"
 tokio = { version = "1.53.1", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
