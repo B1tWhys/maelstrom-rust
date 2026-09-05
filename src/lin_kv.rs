@@ -1,10 +1,9 @@
 use crate::messages::{ErrorCode, LinKvOp, ResponseBody};
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 #[derive(Debug, Default)]
 pub struct LinKvState {
-    map: Mutex<HashMap<usize, usize>>,
+    map: HashMap<usize, usize>,
 }
 
 // If this was a serious code base, this layer of the app wouldn't know about the wire request/response DTOs.
@@ -23,8 +22,8 @@ impl LinKvState {
     }
 
     fn read(&self, key: usize) -> ResponseBody {
-        let map = self.map.lock().unwrap();
-        map.get(&key)
+        self.map
+            .get(&key)
             .map(|v| ResponseBody::ReadOk { value: *v })
             .unwrap_or(ResponseBody::Error {
                 code: ErrorCode::KeyDoesNotExist,
@@ -33,14 +32,13 @@ impl LinKvState {
     }
 
     fn write(&mut self, key: usize, value: usize) -> ResponseBody {
-        self.map.lock().unwrap().insert(key, value);
+        self.map.insert(key, value);
 
         ResponseBody::WriteOk
     }
 
     fn cas(&mut self, key: usize, from: usize, to: usize) -> ResponseBody {
-        let mut map = self.map.lock().unwrap();
-        let Some(old_val) = map.get_mut(&key) else {
+        let Some(old_val) = self.map.get_mut(&key) else {
             return ResponseBody::Error {
                 code: ErrorCode::KeyDoesNotExist,
                 text: Some(format!("Key not found: {}", key)),

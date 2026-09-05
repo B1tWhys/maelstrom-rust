@@ -10,9 +10,10 @@ use crate::common::NodeCtx;
 use crate::messages::{Init, Message, MessageBody, RequestBody, ResponseBody};
 use crate::workloads::Workload;
 use crate::workloads::echo::echo;
-use crate::workloads::paxos::paxos;
+use crate::workloads::paxos::PaxosNode;
 use anyhow::{Context, anyhow, bail};
 use std::io;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::Sender;
@@ -39,6 +40,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn paxos(node_ctx: NodeCtx) -> anyhow::Result<()> {
+    let paxos = Arc::new(PaxosNode::new(node_ctx));
+    paxos.run().await
 }
 
 fn configure_logging() -> anyhow::Result<()> {
