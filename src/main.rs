@@ -2,23 +2,27 @@
 extern crate macro_rules_attribute;
 
 pub mod common;
-mod echo;
 mod messages;
+mod workloads;
 
 use crate::common::NodeCtx;
-use crate::echo::echo;
 use crate::messages::{Init, InitOk, Message, RequestBody, ResponseBody};
+use crate::workloads::Workload;
+use crate::workloads::echo::echo;
 use anyhow::{Context, anyhow, bail};
 use std::io;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::Sender;
-use tracing::{error, info};
+use tracing::{error, info, warn};
+
+const WORKLOAD_ENV_VAR: &str = "WORKLOAD";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     configure_logging()?;
-    info!("Starting up");
+    let workload = select_workload()?;
+    info!("Starting up workload: {:?}", workload);
 
     let req_in = connect_stdin();
     let (req_out, rsp_out) = connect_stdout();
@@ -27,7 +31,10 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Initialized node context");
 
-    echo(node_ctx).await?;
+    match workload {
+        Workload::Echo => echo(node_ctx).await?,
+        Workload::Raft => {}
+    }
 
     Ok(())
 }
@@ -39,6 +46,27 @@ fn configure_logging() -> anyhow::Result<()> {
         .with_writer(io::stderr)
         .try_init()
         .map_err(|e| anyhow!(e))
+}
+
+fn select_workload() -> anyhow::Result<Workload> {
+    let val = std::env::vars()
+        .find(|(k, _)| k == WORKLOAD_ENV_VAR)
+        .map(|(_, v)| v)
+        .unwrap_or_else(|| {
+            warn!(
+                "No workload picked up from the {} env var, defaulting to: echo",
+                WORKLOAD_ENV_VAR
+            );
+            "echo".into()
+        });
+
+    if val == "echo" {
+        Ok(Workload::Echo)
+    } else if val == "raft" {
+        Ok(Workload::Raft)
+    } else {
+        bail!("Unexpected workload: {}", val);
+    }
 }
 
 fn connect_stdin() -> Receiver<Message<RequestBody>> {
