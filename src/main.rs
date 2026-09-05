@@ -9,12 +9,14 @@ use crate::common::NodeCtx;
 use crate::messages::{Init, InitOk, Message, RequestBody, ResponseBody};
 use crate::workloads::Workload;
 use crate::workloads::echo::echo;
+use crate::workloads::raft::raft;
 use anyhow::{Context, anyhow, bail};
 use std::io;
+use std::io::Write;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::Sender;
-use tracing::{error, info, warn};
+use tracing::{Level, debug, error, info, warn};
 
 const WORKLOAD_ENV_VAR: &str = "WORKLOAD";
 
@@ -22,7 +24,7 @@ const WORKLOAD_ENV_VAR: &str = "WORKLOAD";
 async fn main() -> anyhow::Result<()> {
     configure_logging()?;
     let workload = select_workload()?;
-    info!("Starting up workload: {:?}", workload);
+    info!(?workload, "Starting up");
 
     let req_in = connect_stdin();
     let (req_out, rsp_out) = connect_stdout();
@@ -33,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
 
     match workload {
         Workload::Echo => echo(node_ctx).await?,
-        Workload::Raft => {}
+        Workload::Raft => raft(node_ctx).await?,
     }
 
     Ok(())
@@ -44,6 +46,7 @@ fn configure_logging() -> anyhow::Result<()> {
         .without_time()
         .with_target(false)
         .with_writer(io::stderr)
+        .with_max_level(Level::DEBUG)
         .try_init()
         .map_err(|e| anyhow!(e))
 }
@@ -109,11 +112,14 @@ fn connect_stdout() -> (Sender<Message<RequestBody>>, Sender<Message<ResponseBod
                     serde_json::to_string(&msg).with_context(|| format!("Failed to deserialize message: {:?}", msg)).unwrap()
                 }
                 else => {
+                    info!("Req and rsp are closed, closing stdout");
                     break
                 }
             };
 
             println!("{}", message);
+            debug!(stdout_msg = message);
+            io::stdout().flush().unwrap();
         }
     });
 

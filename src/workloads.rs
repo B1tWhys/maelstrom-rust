@@ -1,4 +1,5 @@
 pub mod echo;
+pub mod raft;
 
 use serde::Deserialize;
 

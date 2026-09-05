@@ -2,4 +2,6 @@
 
 cargo b
 export WORKLOAD=raft
-./maelstrom/maelstrom test -w lin-kv --bin target/debug/maelstrom-rust --nodes n1 --time-limit 10 --log-stderr
+./maelstrom/maelstrom test -w lin-kv --bin target/debug/maelstrom-rust \
+  --time-limit 10 --rate 10 --node-count 1 --concurrency 2n \
+  --log-stderr
