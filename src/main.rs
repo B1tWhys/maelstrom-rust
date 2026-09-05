@@ -7,13 +7,12 @@ mod messages;
 mod workloads;
 
 use crate::common::NodeCtx;
-use crate::messages::{Init, InitOk, Message, RequestBody, ResponseBody};
+use crate::messages::{Init, Message, MessageBody, RequestBody, ResponseBody};
 use crate::workloads::Workload;
 use crate::workloads::echo::echo;
 use crate::workloads::paxos::paxos;
 use anyhow::{Context, anyhow, bail};
 use std::io;
-use std::io::Write;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::Sender;
@@ -27,10 +26,10 @@ async fn main() -> anyhow::Result<()> {
     let workload = select_workload()?;
     info!(?workload, "Starting up");
 
-    let req_in = connect_stdin();
-    let (req_out, rsp_out) = connect_stdout();
+    let stdin = connect_stdin();
+    let stdout = connect_stdout();
 
-    let node_ctx = init_node_ctx(req_in, req_out, rsp_out).await?;
+    let node_ctx = init_node_ctx(stdin, stdout).await?;
 
     info!("Initialized node context");
 
@@ -73,14 +72,14 @@ fn select_workload() -> anyhow::Result<Workload> {
     }
 }
 
-fn connect_stdin() -> Receiver<Message<RequestBody>> {
-    let (req_tx, req_rx) = tokio::sync::broadcast::channel::<Message<RequestBody>>(10);
+fn connect_stdin() -> Receiver<Message> {
+    let (req_tx, req_rx) = tokio::sync::broadcast::channel::<Message>(100);
 
     let mut stdin = BufReader::new(tokio::io::stdin()).lines();
 
     tokio::task::spawn(async move {
         while let Ok(Some(line)) = stdin.next_line().await {
-            let msg = match serde_json::from_str::<Message<RequestBody>>(&line) {
+            let msg = match serde_json::from_str::<Message>(&line) {
                 Ok(msg) => msg,
                 Err(e) => {
                     error!(%e, %line, "Failed to deserialize line");
@@ -96,71 +95,59 @@ fn connect_stdin() -> Receiver<Message<RequestBody>> {
     req_rx
 }
 
-/// # Returns
-/// `(req_out_tx, rsp_out_tx)`
-fn connect_stdout() -> (Sender<Message<RequestBody>>, Sender<Message<ResponseBody>>) {
-    let (req_out_tx, mut req_out_rx) = tokio::sync::mpsc::channel::<Message<RequestBody>>(128);
-    let (rsp_out_tx, mut rsp_out_rx) = tokio::sync::mpsc::channel::<Message<ResponseBody>>(128);
+fn connect_stdout() -> Sender<Message> {
+    let (req_out_tx, mut req_out_rx) = tokio::sync::mpsc::channel::<Message>(128);
 
     tokio::spawn(async move {
-        loop {
-            // Erase type of message body
-            let message = tokio::select! {
-                Some(msg) = req_out_rx.recv() => {
-                    serde_json::to_string(&msg).with_context(|| format!("Failed to serialize message: {:?}", msg)).unwrap()
-                }
-                Some(msg) = rsp_out_rx.recv() => {
-                    serde_json::to_string(&msg).with_context(|| format!("Failed to deserialize message: {:?}", msg)).unwrap()
-                }
-                else => {
-                    info!("Req and rsp are closed, closing stdout");
-                    break
-                }
-            };
-
+        while let Some(msg) = req_out_rx.recv().await {
+            let message = serde_json::to_string(&msg)
+                .with_context(|| format!("Failed to serialize message: {:?}", msg))
+                .unwrap();
             println!("{}", message);
             debug!(stdout_msg = message);
-            io::stdout().flush().unwrap();
         }
+        info!("Stdout closed");
     });
 
-    (req_out_tx, rsp_out_tx)
+    req_out_tx
 }
 
 async fn init_node_ctx(
-    mut req_in: Receiver<Message<RequestBody>>,
-    req_out: Sender<Message<RequestBody>>,
-    rsp_out: Sender<Message<ResponseBody>>,
+    mut msgs_in: Receiver<Message>,
+    msgs_out: Sender<Message>,
 ) -> anyhow::Result<NodeCtx> {
     let Ok(Message {
         src: init_src,
         body:
-            RequestBody::Init(Init {
-                node_id,
-                msg_id: init_msg_id,
-                ..
-            }),
+            MessageBody::Request {
+                msg_id,
+                req_body:
+                    RequestBody::Init(Init {
+                        node_id,
+                        node_ids: _,
+                    }),
+            },
         ..
-    }) = req_in.recv().await
+    }) = msgs_in.recv().await
     else {
         bail!("Failed to receive an init message!")
     };
 
     let node_ctx = NodeCtx {
         node_id,
-        req_in,
-        req_out,
-        rsp_out,
+        msgs_in,
+        msgs_out,
     };
 
     node_ctx
-        .rsp_out
+        .msgs_out
         .send(Message {
             src: node_ctx.node_id.clone(),
             dest: init_src,
-            body: ResponseBody::InitOk(InitOk {
-                in_reply_to: init_msg_id,
-            }),
+            body: MessageBody::Response {
+                in_reply_to: msg_id,
+                rsp_body: ResponseBody::InitOk,
+            },
         })
         .await?;
     Ok(node_ctx)

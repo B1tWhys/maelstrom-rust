@@ -1,6 +1,4 @@
-use crate::messages::{
-    Cas, CasOk, ErrorCode, Read, ReadOk, RequestBody, ResponseBody, Write, WriteOk,
-};
+use crate::messages::{Cas, ErrorCode, RequestBody, ResponseBody, Write};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -26,7 +24,7 @@ impl LinKvState {
         request_body: RequestBody,
     ) -> anyhow::Result<ResponseBody, RequestBody> {
         let resp = match request_body {
-            RequestBody::Read(req) => self.read(req),
+            RequestBody::Read { key } => self.read(key),
             RequestBody::Write(req) => self.write(req),
             RequestBody::Cas(req) => self.cas(req),
             body => {
@@ -36,43 +34,26 @@ impl LinKvState {
         Ok(resp)
     }
 
-    fn read(&self, Read { msg_id, key }: Read) -> ResponseBody {
+    fn read(&self, key: usize) -> ResponseBody {
         let map = self.map.lock().unwrap();
         map.get(&key)
-            .map(|v| {
-                ResponseBody::ReadOk(ReadOk {
-                    value: *v,
-                    in_reply_to: msg_id,
-                })
-            })
+            .map(|v| ResponseBody::ReadOk { value: *v })
             .unwrap_or(ResponseBody::Error {
-                in_reply_to: msg_id,
                 code: ErrorCode::KeyDoesNotExist,
                 text: None,
             })
     }
 
-    fn write(&mut self, Write { msg_id, key, value }: Write) -> ResponseBody {
+    fn write(&mut self, Write { key, value }: Write) -> ResponseBody {
         self.map.lock().unwrap().insert(key, value);
 
-        ResponseBody::WriteOk(WriteOk {
-            in_reply_to: msg_id,
-        })
+        ResponseBody::WriteOk
     }
 
-    fn cas(
-        &mut self,
-        Cas {
-            msg_id,
-            key,
-            from,
-            to,
-        }: Cas,
-    ) -> ResponseBody {
+    fn cas(&mut self, Cas { key, from, to }: Cas) -> ResponseBody {
         let mut map = self.map.lock().unwrap();
         let Some(old_val) = map.get_mut(&key) else {
             return ResponseBody::Error {
-                in_reply_to: msg_id,
                 code: ErrorCode::KeyDoesNotExist,
                 text: Some(format!("Key not found: {}", key)),
             };
@@ -80,7 +61,6 @@ impl LinKvState {
 
         if old_val != &from {
             return ResponseBody::Error {
-                in_reply_to: msg_id,
                 code: ErrorCode::PreconditionFailed,
                 text: Some(format!(
                     "Current value didn't match the expected value. From: {:?}, actual current: {:?}",
@@ -91,8 +71,6 @@ impl LinKvState {
 
         *old_val = to;
 
-        ResponseBody::CasOk(CasOk {
-            in_reply_to: msg_id,
-        })
+        ResponseBody::CasOk
     }
 }

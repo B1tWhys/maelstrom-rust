@@ -10,47 +10,50 @@ macro_rules! message_derives {
 }
 
 #[apply(message_derives)]
-pub struct Message<T>
-where
-    T: Serialize,
-{
+pub struct Message {
     pub src: String,
     pub dest: String,
-    pub body: T,
+    pub body: MessageBody,
+}
+
+#[apply(message_derives)]
+#[serde(untagged)]
+pub enum MessageBody {
+    Request {
+        msg_id: usize,
+        #[serde(flatten)]
+        req_body: RequestBody,
+    },
+    Response {
+        in_reply_to: usize,
+        #[serde(flatten)]
+        rsp_body: ResponseBody,
+    },
 }
 
 #[apply(message_derives)]
 #[serde(tag = "type")]
 pub enum RequestBody {
     Init(Init),
-    Echo(Echo),
-    Read(Read),
+    Echo { echo: String },
+    Read { key: usize },
     Write(Write),
     Cas(Cas),
-}
-
-impl RequestBody {
-    pub fn msg_id(&self) -> usize {
-        match self {
-            RequestBody::Init(Init { msg_id, .. })
-            | RequestBody::Echo(Echo { msg_id, .. })
-            | RequestBody::Read(Read { msg_id, .. })
-            | RequestBody::Write(Write { msg_id, .. })
-            | RequestBody::Cas(Cas { msg_id, .. }) => *msg_id,
-        }
-    }
 }
 
 #[apply(message_derives)]
 #[serde(tag = "type")]
 pub enum ResponseBody {
-    InitOk(InitOk),
-    EchoOk(EchoOk),
-    ReadOk(ReadOk),
-    WriteOk(WriteOk),
-    CasOk(CasOk),
+    InitOk,
+    EchoOk {
+        echo: String,
+    },
+    ReadOk {
+        value: usize,
+    },
+    WriteOk,
+    CasOk,
     Error {
-        in_reply_to: usize,
         code: ErrorCode,
         text: Option<String>,
     },
@@ -107,65 +110,21 @@ pub enum ErrorCode {
 
 #[apply(message_derives)]
 pub struct Init {
-    pub msg_id: usize,
     pub node_id: String,
     pub node_ids: Vec<String>,
-}
-
-#[apply(message_derives)]
-pub struct InitOk {
-    pub in_reply_to: usize,
-}
-
-// ===== Echo =====
-
-#[apply(message_derives)]
-pub struct Echo {
-    pub msg_id: usize,
-    pub echo: String,
-}
-
-#[apply(message_derives)]
-pub struct EchoOk {
-    pub echo: String,
-    pub in_reply_to: usize,
 }
 
 // ===== Lin-kv =====
 
 #[apply(message_derives)]
-pub struct Read {
-    pub msg_id: usize,
-    pub key: usize,
-}
-
-#[apply(message_derives)]
-pub struct ReadOk {
-    pub value: usize,
-    pub in_reply_to: usize,
-}
-
-#[apply(message_derives)]
 pub struct Write {
-    pub msg_id: usize,
     pub key: usize,
     pub value: usize,
-}
-
-#[apply(message_derives)]
-pub struct WriteOk {
-    pub in_reply_to: usize,
 }
 
 #[apply(message_derives)]
 pub struct Cas {
-    pub msg_id: usize,
     pub key: usize,
     pub from: usize,
     pub to: usize,
-}
-
-#[apply(message_derives)]
-pub struct CasOk {
-    pub in_reply_to: usize,
 }

@@ -1,15 +1,19 @@
 use crate::common::NodeCtx;
-use crate::messages::{Echo, EchoOk, Message, RequestBody, ResponseBody};
+use crate::messages::{Message, MessageBody, RequestBody, ResponseBody};
 use anyhow::bail;
 use tracing::info;
 
 pub async fn echo(mut node_ctx: NodeCtx) -> anyhow::Result<()> {
     info!("Starting echo");
-    while let Ok(req) = &node_ctx.req_in.recv().await {
+    while let Ok(req) = &node_ctx.msgs_in.recv().await {
         let Message {
             src,
             dest,
-            body: RequestBody::Echo(Echo { msg_id, echo }),
+            body:
+                MessageBody::Request {
+                    msg_id,
+                    req_body: RequestBody::Echo { echo },
+                },
         } = req
         else {
             bail!("Received unexpected request for echo: {:?}", req);
@@ -18,13 +22,13 @@ pub async fn echo(mut node_ctx: NodeCtx) -> anyhow::Result<()> {
         let resp = Message {
             src: dest.clone(),
             dest: src.clone(),
-            body: ResponseBody::EchoOk(EchoOk {
-                echo: echo.clone(),
+            body: MessageBody::Response {
                 in_reply_to: *msg_id,
-            }),
+                rsp_body: ResponseBody::EchoOk { echo: echo.clone() },
+            },
         };
 
-        node_ctx.rsp_out.send(resp).await?;
+        node_ctx.msgs_out.send(resp).await?;
     }
 
     Ok(())
