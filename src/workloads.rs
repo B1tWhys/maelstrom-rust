@@ -1,10 +1,10 @@
 pub mod echo;
-pub mod raft;
+pub mod paxos;
 
 use serde::Deserialize;
 
 #[derive(Debug, Eq, PartialEq, Deserialize)]
 pub enum Workload {
     Echo,
-    Raft,
+    Paxos,
 }

@@ -2,6 +2,7 @@
 extern crate macro_rules_attribute;
 
 pub mod common;
+pub mod lin_kv;
 mod messages;
 mod workloads;
 
@@ -9,7 +10,7 @@ use crate::common::NodeCtx;
 use crate::messages::{Init, InitOk, Message, RequestBody, ResponseBody};
 use crate::workloads::Workload;
 use crate::workloads::echo::echo;
-use crate::workloads::raft::raft;
+use crate::workloads::paxos::paxos;
 use anyhow::{Context, anyhow, bail};
 use std::io;
 use std::io::Write;
@@ -35,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
 
     match workload {
         Workload::Echo => echo(node_ctx).await?,
-        Workload::Raft => raft(node_ctx).await?,
+        Workload::Paxos => paxos(node_ctx).await?,
     }
 
     Ok(())
@@ -65,8 +66,8 @@ fn select_workload() -> anyhow::Result<Workload> {
 
     if val == "echo" {
         Ok(Workload::Echo)
-    } else if val == "raft" {
-        Ok(Workload::Raft)
+    } else if val == "paxos" {
+        Ok(Workload::Paxos)
     } else {
         bail!("Unexpected workload: {}", val);
     }

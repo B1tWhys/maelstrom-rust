@@ -1,13 +1,12 @@
-use crate::common::NodeCtx;
 use crate::messages::{
-    Cas, CasOk, ErrorCode, Message, Read, ReadOk, RequestBody, ResponseBody, Write, WriteOk,
+    Cas, CasOk, ErrorCode, Read, ReadOk, RequestBody, ResponseBody, Write, WriteOk,
 };
 use std::collections::HashMap;
-use tracing::{info, warn};
+use std::sync::Mutex;
 
-#[derive(Debug, Clone, Default)]
-struct LinKvState {
-    map: HashMap<usize, usize>,
+#[derive(Debug, Default)]
+pub struct LinKvState {
+    map: Mutex<HashMap<usize, usize>>,
 }
 
 // If this was a serious code base, this layer of the app wouldn't know about the wire request/response DTOs.
@@ -38,8 +37,8 @@ impl LinKvState {
     }
 
     fn read(&self, Read { msg_id, key }: Read) -> ResponseBody {
-        self.map
-            .get(&key)
+        let map = self.map.lock().unwrap();
+        map.get(&key)
             .map(|v| {
                 ResponseBody::ReadOk(ReadOk {
                     value: *v,
@@ -54,7 +53,7 @@ impl LinKvState {
     }
 
     fn write(&mut self, Write { msg_id, key, value }: Write) -> ResponseBody {
-        self.map.insert(key, value);
+        self.map.lock().unwrap().insert(key, value);
 
         ResponseBody::WriteOk(WriteOk {
             in_reply_to: msg_id,
@@ -70,7 +69,8 @@ impl LinKvState {
             to,
         }: Cas,
     ) -> ResponseBody {
-        let Some(old_val) = self.map.get_mut(&key) else {
+        let mut map = self.map.lock().unwrap();
+        let Some(old_val) = map.get_mut(&key) else {
             return ResponseBody::Error {
                 in_reply_to: msg_id,
                 code: ErrorCode::KeyDoesNotExist,
@@ -95,40 +95,4 @@ impl LinKvState {
             in_reply_to: msg_id,
         })
     }
-}
-
-pub async fn raft(mut node_ctx: NodeCtx) -> anyhow::Result<()> {
-    let mut state = LinKvState::default();
-
-    while let Ok(Message {
-        src: req_src, body, ..
-    }) = node_ctx.req_in.recv().await
-    {
-        info!(?body, "Handling request");
-        let resp = state.apply(body).unwrap_or_else(|req| {
-            warn!(
-                ?req,
-                "Unexpected message body received for raft, ignoring it",
-            );
-            ResponseBody::Error {
-                in_reply_to: req.msg_id(),
-                code: ErrorCode::MalformedRequest,
-                text: Some(format!(
-                    "raft doesn't know how to deal with request: {:?}",
-                    req
-                )),
-            }
-        });
-        info!(?resp, "Responding to request");
-        node_ctx
-            .rsp_out
-            .send(Message {
-                src: node_ctx.node_id.clone(),
-                dest: req_src,
-                body: resp,
-            })
-            .await?;
-    }
-
-    Ok(())
 }

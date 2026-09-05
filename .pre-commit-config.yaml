@@ -12,4 +12,4 @@ repos:
         entry: cargo clippy --workspace --all-targets -- -D warnings
         language: system
         pass_filenames: false
-        files: ^(crates/(core|server|mrt-util-cli|ris_client)/.*\.rs|Cargo\.(toml|lock))$
+        files: \.rs$
