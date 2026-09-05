@@ -1,4 +1,4 @@
-use crate::messages::{Cas, ErrorCode, RequestBody, ResponseBody, Write};
+use crate::messages::{ErrorCode, LinKvOp, ResponseBody};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -10,28 +10,16 @@ pub struct LinKvState {
 // If this was a serious code base, this layer of the app wouldn't know about the wire request/response DTOs.
 // But I'm not being too precious about it today...
 impl LinKvState {
-    /// Apply a request to the state machine
+    /// Apply an operation to the state machine and return an appropriate response body
     ///
-    /// If the request is relevant to the state machine, process it and return the appropriate response
-    /// based on the lin-kv workload.
-    ///
-    /// If it's an unexpected request type, return the request in the Err.
-    ///
-    /// TODO: The set of valid request bodies for the state machine should be checked at compile time
-    /// by having a more specific enum that covers these
-    pub fn apply(
-        &mut self,
-        request_body: RequestBody,
-    ) -> anyhow::Result<ResponseBody, RequestBody> {
-        let resp = match request_body {
-            RequestBody::Read { key } => self.read(key),
-            RequestBody::Write(req) => self.write(req),
-            RequestBody::Cas(req) => self.cas(req),
-            body => {
-                return Err(body);
-            }
-        };
-        Ok(resp)
+    /// (architecturally returning the response body at this layer is questionable, but this isn't
+    /// that serious)
+    pub fn apply(&mut self, request_body: LinKvOp) -> ResponseBody {
+        match request_body {
+            LinKvOp::Read { key } => self.read(key),
+            LinKvOp::Write { key, value } => self.write(key, value),
+            LinKvOp::Cas { key, from, to } => self.cas(key, from, to),
+        }
     }
 
     fn read(&self, key: usize) -> ResponseBody {
@@ -44,13 +32,13 @@ impl LinKvState {
             })
     }
 
-    fn write(&mut self, Write { key, value }: Write) -> ResponseBody {
+    fn write(&mut self, key: usize, value: usize) -> ResponseBody {
         self.map.lock().unwrap().insert(key, value);
 
         ResponseBody::WriteOk
     }
 
-    fn cas(&mut self, Cas { key, from, to }: Cas) -> ResponseBody {
+    fn cas(&mut self, key: usize, from: usize, to: usize) -> ResponseBody {
         let mut map = self.map.lock().unwrap();
         let Some(old_val) = map.get_mut(&key) else {
             return ResponseBody::Error {

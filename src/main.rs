@@ -121,11 +121,7 @@ async fn init_node_ctx(
         body:
             MessageBody::Request {
                 msg_id,
-                req_body:
-                    RequestBody::Init(Init {
-                        node_id,
-                        node_ids: _,
-                    }),
+                req_body: RequestBody::Init(Init { node_id, node_ids }),
             },
         ..
     }) = msgs_in.recv().await
@@ -135,6 +131,7 @@ async fn init_node_ctx(
 
     let node_ctx = NodeCtx {
         node_id,
+        nodes: node_ids,
         msgs_in,
         msgs_out,
     };

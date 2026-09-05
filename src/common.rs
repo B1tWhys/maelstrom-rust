@@ -3,6 +3,8 @@ use crate::messages::Message;
 pub struct NodeCtx {
     pub node_id: String,
 
+    pub nodes: Vec<String>,
+
     /// Receiver for inbound messages
     pub msgs_in: tokio::sync::broadcast::Receiver<Message>,
 

@@ -1,3 +1,5 @@
+#![allow(dead_code)] // FIXME
+
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::{Deserialize, Serialize};
 
@@ -35,10 +37,19 @@ pub enum MessageBody {
 #[serde(tag = "type")]
 pub enum RequestBody {
     Init(Init),
-    Echo { echo: String },
+    Echo {
+        echo: String,
+    },
+    #[serde(untagged)]
+    LinKvOp(LinKvOp),
+}
+
+#[apply(message_derives)]
+#[serde(tag = "type")]
+pub enum LinKvOp {
     Read { key: usize },
-    Write(Write),
-    Cas(Cas),
+    Write { key: usize, value: usize },
+    Cas { key: usize, from: usize, to: usize },
 }
 
 #[apply(message_derives)]
@@ -115,6 +126,11 @@ pub struct Init {
 }
 
 // ===== Lin-kv =====
+
+#[apply(message_derives)]
+pub struct Read {
+    pub key: usize,
+}
 
 #[apply(message_derives)]
 pub struct Write {
