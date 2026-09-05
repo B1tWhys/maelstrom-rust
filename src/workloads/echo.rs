@@ -3,9 +3,9 @@ use crate::messages::{Message, MessageBody, RequestBody, ResponseBody};
 use anyhow::bail;
 use tracing::info;
 
-pub async fn echo(mut node_ctx: NodeCtx) -> anyhow::Result<()> {
+pub async fn echo(node_ctx: NodeCtx) -> anyhow::Result<()> {
     info!("Starting echo");
-    while let Ok(req) = &node_ctx.msgs_in.recv().await {
+    while let Some(req) = &node_ctx.next_request().await {
         let Message {
             src,
             dest,
@@ -28,7 +28,7 @@ pub async fn echo(mut node_ctx: NodeCtx) -> anyhow::Result<()> {
             },
         };
 
-        node_ctx.msgs_out.send(resp).await?;
+        node_ctx.msgs_out.send(resp)?;
     }
 
     Ok(())

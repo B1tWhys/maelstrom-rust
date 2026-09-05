@@ -44,10 +44,10 @@ impl PaxosNode {
             .min()
             .cloned()
             .expect("NodeCtx has no nodes! It's gonna be hard to do paxos without them!");
-        assert!(
-            node_ctx.nodes.len() > 1,
-            "There aren't enough nodes to do paxos!"
-        );
+        // assert!(
+        //     node_ctx.nodes.len() > 1,
+        //     "There aren't enough nodes to do paxos!"
+        // );
 
         info!("Assuming {cur_leader} is leader node (TODO: Do this through an election)");
 

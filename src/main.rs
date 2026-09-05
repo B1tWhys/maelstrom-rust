@@ -15,8 +15,9 @@ use anyhow::{Context, anyhow, bail};
 use std::io;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::broadcast::Receiver;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::Mutex;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::UnboundedSender;
 use tracing::{Level, debug, error, info, warn};
 
 const WORKLOAD_ENV_VAR: &str = "WORKLOAD";
@@ -78,8 +79,8 @@ fn select_workload() -> anyhow::Result<Workload> {
     }
 }
 
-fn connect_stdin() -> Receiver<Message> {
-    let (req_tx, req_rx) = tokio::sync::broadcast::channel::<Message>(100);
+fn connect_stdin() -> UnboundedReceiver<Message> {
+    let (req_tx, req_rx) = tokio::sync::mpsc::unbounded_channel();
 
     let mut stdin = BufReader::new(tokio::io::stdin()).lines();
 
@@ -101,8 +102,8 @@ fn connect_stdin() -> Receiver<Message> {
     req_rx
 }
 
-fn connect_stdout() -> Sender<Message> {
-    let (req_out_tx, mut req_out_rx) = tokio::sync::mpsc::channel::<Message>(128);
+fn connect_stdout() -> UnboundedSender<Message> {
+    let (req_out_tx, mut req_out_rx) = tokio::sync::mpsc::unbounded_channel();
 
     tokio::spawn(async move {
         while let Some(msg) = req_out_rx.recv().await {
@@ -119,10 +120,10 @@ fn connect_stdout() -> Sender<Message> {
 }
 
 async fn init_node_ctx(
-    mut msgs_in: Receiver<Message>,
-    msgs_out: Sender<Message>,
+    mut msgs_in: UnboundedReceiver<Message>,
+    msgs_out: UnboundedSender<Message>,
 ) -> anyhow::Result<NodeCtx> {
-    let Ok(Message {
+    let Some(Message {
         src: init_src,
         body:
             MessageBody::Request {
@@ -138,20 +139,17 @@ async fn init_node_ctx(
     let node_ctx = NodeCtx {
         node_id,
         nodes: node_ids,
-        msgs_in,
+        msgs_in: Mutex::new(msgs_in),
         msgs_out,
     };
 
-    node_ctx
-        .msgs_out
-        .send(Message {
-            src: node_ctx.node_id.clone(),
-            dest: init_src,
-            body: MessageBody::Response {
-                in_reply_to: msg_id,
-                rsp_body: ResponseBody::InitOk,
-            },
-        })
-        .await?;
+    node_ctx.msgs_out.send(Message {
+        src: node_ctx.node_id.clone(),
+        dest: init_src,
+        body: MessageBody::Response {
+            in_reply_to: msg_id,
+            rsp_body: ResponseBody::InitOk,
+        },
+    })?;
     Ok(node_ctx)
 }
