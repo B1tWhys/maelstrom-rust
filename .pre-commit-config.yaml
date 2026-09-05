@@ -1,0 +1,15 @@
+repos:
+  - repo: local
+    hooks:
+      - id: rustfmt
+        name: rustfmt
+        entry: rustfmt --edition 2024
+        language: system
+        files: \.rs$
+
+      - id: clippy-workspace
+        name: cargo clippy (workspace)
+        entry: cargo clippy --workspace --all-targets -- -D warnings
+        language: system
+        pass_filenames: false
+        files: ^(crates/(core|server|mrt-util-cli|ris_client)/.*\.rs|Cargo\.(toml|lock))$
