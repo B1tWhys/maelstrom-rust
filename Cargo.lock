@@ -112,6 +112,7 @@ name = "maelstrom-rust"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "log",
  "macro_rules_attribute",
  "num_enum",
  "serde",

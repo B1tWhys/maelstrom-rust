@@ -5,6 +5,7 @@ pub mod common;
 pub mod lin_kv;
 mod messages;
 mod workloads;
+pub mod countdown_latch;
 
 use crate::common::NodeCtx;
 use crate::messages::{Init, Message, MessageBody, RequestBody, ResponseBody};

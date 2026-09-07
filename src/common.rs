@@ -1,4 +1,4 @@
-use crate::messages::{Message, MessageBody, ResponseBody};
+use crate::messages::{Message, MessageBody, RequestBody, ResponseBody};
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tracing::warn;
@@ -16,6 +16,17 @@ pub struct NodeCtx {
 
     /// Sender for outbound messages
     pub msgs_out: UnboundedSender<Message>,
+}
+
+impl NodeCtx {
+    /// All the node ids that aren't me
+    pub fn other_nodes(&self) -> impl Iterator<Item = &String> {
+        self.nodes.iter().filter(|&n| n != &self.node_id)
+    }
+
+    pub async fn send_request(&self, dest: String, request_body: RequestBody) -> anyhow::Result<ResponseBody> {
+        todo!()
+    }
 }
 
 impl NodeCtx {

@@ -1,5 +1,6 @@
 #![allow(dead_code)] // FIXME
 
+use std::fmt::{Display, Formatter};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +43,8 @@ pub enum RequestBody {
     },
     #[serde(untagged)]
     LinKvOp(LinKvOp),
+    #[serde(untagged)]
+    Paxos(PaxosReq)
 }
 
 #[apply(message_derives)]
@@ -50,6 +53,24 @@ pub enum LinKvOp {
     Read { key: usize },
     Write { key: usize, value: usize },
     Cas { key: usize, from: usize, to: usize },
+}
+
+#[apply(message_derives)]
+#[serde(tag = "type")]
+pub enum PaxosReq {
+    Prepare {
+        seq_num: PaxosSeqN,
+        slot_idx: usize
+    },
+    Accept {
+        seq_num: PaxosSeqN,
+        slot_idx: usize,
+        value: LinKvOp
+    },
+    Decided {
+        slot_idx: PaxosSeqN,
+        value: LinKvOp
+    }
 }
 
 #[apply(message_derives)]
@@ -68,6 +89,43 @@ pub enum ResponseBody {
         code: ErrorCode,
         text: Option<String>,
     },
+    #[serde(untagged)]
+    Paxos(PaxosRsp)
+}
+
+#[apply(message_derives)]
+#[serde(tag="type")]
+pub enum PaxosRsp {
+    Promise {
+        existing_proposal: Option<Proposal>
+    },
+    AcceptOk,
+    Nack(PaxosNack)
+}
+
+#[apply(message_derives)]
+pub enum PaxosNack {
+    NTooLow(PaxosSeqN),
+    AlreadyDecided(LinKvOp)
+}
+
+#[apply(message_derives)]
+pub struct Proposal {
+    pub seq_num: PaxosSeqN,
+    pub value: LinKvOp
+}
+
+#[apply(message_derives)]
+#[derive(PartialOrd, Ord)]
+pub struct PaxosSeqN {
+    pub counter: usize,
+    pub node_id: String,
+}
+
+impl Display for PaxosSeqN {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.counter, self.node_id)
+    }
 }
 
 // ===== Error =====
