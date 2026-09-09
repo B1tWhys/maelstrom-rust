@@ -1,14 +1,14 @@
 #[macro_use]
 extern crate macro_rules_attribute;
 
-pub mod common;
+pub mod countdown_latch;
 pub mod lin_kv;
 mod messages;
+pub mod node_ctx;
 mod workloads;
-pub mod countdown_latch;
 
-use crate::common::NodeCtx;
 use crate::messages::{Init, Message, MessageBody, RequestBody, ResponseBody};
+use crate::node_ctx::NodeCtx;
 use crate::workloads::Workload;
 use crate::workloads::echo::echo;
 use crate::workloads::paxos::PaxosNode;

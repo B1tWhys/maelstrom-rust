@@ -24,8 +24,9 @@ impl NodeCtx {
         self.nodes.iter().filter(|&n| n != &self.node_id)
     }
 
-    pub async fn send_request(&self, dest: String, request_body: RequestBody) -> anyhow::Result<ResponseBody> {
-        todo!()
+    pub fn min_quorum_size(&self) -> usize {
+        let l = self.nodes.len();
+        l / 2 + 1
     }
 }
 
@@ -71,5 +72,13 @@ impl NodeCtx {
                 "Tried to output to stdout but the sender was closed"
             )
         }
+    }
+
+    pub async fn send_request(
+        &self,
+        _dest: String,
+        _request_body: RequestBody,
+    ) -> anyhow::Result<ResponseBody> {
+        todo!()
     }
 }
