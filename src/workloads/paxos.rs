@@ -18,7 +18,6 @@ use tracing::info;
 
 /// Represents a node in a cluster of hosts running paxos. Encapsulates all that logic & state.
 pub struct PaxosNode {
-    // I think I gave up prematurely on not having this in an Arc. Might be possible to just have a NodeCtx here...
     node_ctx: Arc<NodeCtx>,
     /// The node id of the current leader. See [`NodeCtx::nodes`]
     cur_leader: RwLock<String>,
@@ -32,7 +31,6 @@ pub struct PaxosNode {
     next_slot_to_apply: AtomicUsize,
     /// Log of the paxos slots. Each slot represents one round of paxos, corresponding to one atomic
     /// operation on the snapshot
-    // log: Vec<RwLock<PaxosSlot>>,
     log: Arc<Log>,
 }
 
@@ -75,42 +73,11 @@ impl PaxosNode {
         let cur_leader = self.cur_leader.read().await;
         cur_leader.as_ref() == self.node_ctx.node_id
     }
-
-    fn min_quorum_size(&self) -> usize {
-        self.node_ctx.min_quorum_size()
-    }
-
-    async fn get_slot_mut(&self, slot_idx: usize) -> Option<OwnedRwLockWriteGuard<PaxosSlot>> {
-        let locked = self.log.get(slot_idx)?;
-        Some(locked.write_owned().await)
-    }
-
-    // fn next_seq_num(&self, slot: &PaxosSlot) -> PaxosSeqN {
-    //     let node_id = self.node_ctx.node_id.clone();
-    //     match slot {
-    //         PaxosSlot::New(..) => PaxosSeqN {
-    //             counter: 0,
-    //             node_id,
-    //         },
-    //         PaxosSlot::Promised { promised_seq_num }
-    //         | PaxosSlot::Accepted {
-    //             promised_seq_num, ..
-    //         } => PaxosSeqN {
-    //             counter: promised_seq_num.counter + 1,
-    //             node_id,
-    //         },
-    //         PaxosSlot::Decided { .. } => {
-    //             panic!(
-    //                 "Tried to generate the next seq number for already decided slot. There is no next seq number, paxos is all done here!"
-    //             );
-    //         }
-    //     }
-    // }
 }
 
 // ===== Message handling/overall plumbing =====
 impl PaxosNode {
-    pub fn new(node_ctx: NodeCtx) -> Self {
+    pub fn new(node_ctx: Arc<NodeCtx>) -> Self {
         let cur_leader = node_ctx
             .nodes
             .iter()
@@ -121,7 +88,7 @@ impl PaxosNode {
         info!("Assuming {cur_leader} is leader node (TODO: Do this through an election)");
 
         Self {
-            node_ctx: Arc::new(node_ctx),
+            node_ctx,
             cur_leader: RwLock::new(cur_leader),
             paxos_seq_num: Default::default(),
             snapshot: Default::default(),
@@ -131,7 +98,7 @@ impl PaxosNode {
     }
 
     pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
-        while let Some(message) = self.node_ctx.next_request().await {
+        while let Some(message) = self.node_ctx.recv_request().await {
             let self_arc = Arc::clone(&self);
             tokio::spawn(async move {
                 let resp = self_arc.handle_request(&message).await;

@@ -44,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn paxos(node_ctx: NodeCtx) -> anyhow::Result<()> {
+async fn paxos(node_ctx: Arc<NodeCtx>) -> anyhow::Result<()> {
     let paxos = Arc::new(PaxosNode::new(node_ctx));
     paxos.run().await
 }
@@ -123,7 +123,7 @@ fn connect_stdout() -> UnboundedSender<Message> {
 async fn init_node_ctx(
     mut msgs_in: UnboundedReceiver<Message>,
     msgs_out: UnboundedSender<Message>,
-) -> anyhow::Result<NodeCtx> {
+) -> anyhow::Result<Arc<NodeCtx>> {
     let Some(Message {
         src: init_src,
         body:
@@ -137,20 +137,6 @@ async fn init_node_ctx(
         bail!("Failed to receive an init message!")
     };
 
-    let node_ctx = NodeCtx {
-        node_id,
-        nodes: node_ids,
-        msgs_in: Mutex::new(msgs_in),
-        msgs_out,
-    };
-
-    node_ctx.msgs_out.send(Message {
-        src: node_ctx.node_id.clone(),
-        dest: init_src,
-        body: MessageBody::Response {
-            in_reply_to: msg_id,
-            rsp_body: ResponseBody::InitOk,
-        },
-    })?;
+    let node_ctx = NodeCtx::new(node_id, node_ids, msgs_in, msgs_out);
     Ok(node_ctx)
 }
