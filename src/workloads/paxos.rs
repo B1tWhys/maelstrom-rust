@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
 use tracing::info;
+use crate::workloads::paxos::transaction::Transaction;
 
 /// Represents a node in a cluster of hosts running paxos. Encapsulates all that logic & state.
 pub struct PaxosNode {
@@ -157,6 +158,12 @@ impl PaxosNode {
                 .expect("TODO"); // FIXME
         }
 
-        todo!()
+        let mut txn = Transaction::new(
+            self.log.clone(),
+            self.node_ctx.clone(),
+            op.clone()
+        );
+
+        txn.run().await
     }
 }

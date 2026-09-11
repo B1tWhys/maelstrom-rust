@@ -27,8 +27,14 @@ enum PaxosPhase {
 }
 
 impl Transaction {
-    pub fn new(_log: &Log, _op: LinKvOp) -> Self {
-        todo!()
+    pub fn new(log: Arc<Log>, node_ctx: Arc<NodeCtx>, op: LinKvOp) -> Self {
+        Self {
+            node_ctx,
+            op,
+            slot: None,
+            paxos_phase: PaxosPhase::Phase1,
+            log,
+        }
     }
 
     pub async fn run(mut self) -> ResponseBody {
