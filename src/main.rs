@@ -124,19 +124,23 @@ async fn init_node_ctx(
     mut msgs_in: UnboundedReceiver<Message>,
     msgs_out: UnboundedSender<Message>,
 ) -> anyhow::Result<Arc<NodeCtx>> {
+    let msg = msgs_in.recv().await;
     let Some(Message {
-        src: init_src,
         body:
             MessageBody::Request {
                 msg_id,
                 req_body: RequestBody::Init(Init { node_id, node_ids }),
             },
         ..
-    }) = msgs_in.recv().await
+    }) = &msg
     else {
         bail!("Failed to receive an init message!")
     };
 
-    let node_ctx = NodeCtx::new(node_id, node_ids, msgs_in, msgs_out);
+    let node_ctx = NodeCtx::new(node_id.clone(), node_ids.clone(), msgs_in, msgs_out);
+
+    node_ctx
+        .send_response(&msg.unwrap(), ResponseBody::InitOk)
+        .await;
     Ok(node_ctx)
 }

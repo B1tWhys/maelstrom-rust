@@ -6,7 +6,7 @@ mod transaction;
 
 use crate::lin_kv::LinKvState;
 use crate::messages::{
-    LinKvOp, Message, MessageBody, PaxosSeqN, Proposal, RequestBody, ResponseBody,
+    ErrorCode, LinKvOp, Message, MessageBody, PaxosSeqN, Proposal, RequestBody, ResponseBody,
 };
 use crate::node_ctx::NodeCtx;
 use crate::workloads::paxos::log::Log;
@@ -114,7 +114,7 @@ impl PaxosNode {
             body:
                 MessageBody::Request {
                     msg_id: _,
-                    req_body: _,
+                    req_body,
                 },
             ..
         } = message
@@ -125,14 +125,13 @@ impl PaxosNode {
             );
         };
 
-        todo!()
-        // match req_body {
-        //     RequestBody::Init(_) | RequestBody::Echo { .. } => ResponseBody::Error {
-        //         code: ErrorCode::NotSupported,
-        //         text: Some(format!("paxos doesn't support request: {:?}", message)),
-        //     },
-        //     RequestBody::LinKvOp(op) => self.handle_linkv_op(op).await,
-        // }
+        match req_body {
+            RequestBody::LinKvOp(op) => self.handle_linkv_op(op).await,
+            _ => ResponseBody::Error {
+                code: ErrorCode::NotSupported,
+                text: Some(format!("paxos doesn't support request: {:?}", message)),
+            },
+        }
     }
 }
 

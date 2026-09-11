@@ -2,11 +2,12 @@ use crate::messages::{Message, MessageBody, RequestBody, ResponseBody};
 use crate::node_ctx::NodeCtx;
 use anyhow::bail;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 pub async fn echo(node_ctx: Arc<NodeCtx>) -> anyhow::Result<()> {
     info!("Starting echo");
     while let Some(req) = &node_ctx.recv_request().await {
+        debug!(?req, "Echo received request");
         let Message {
             src,
             dest,
