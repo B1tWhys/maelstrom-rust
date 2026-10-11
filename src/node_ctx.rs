@@ -1,4 +1,4 @@
-use crate::messages::{Message, MessageBody, PaxosSeqN, RequestBody, ResponseBody};
+use crate::messages::{Message, MessageBody, RequestBody, ResponseBody, UniquePaxosId};
 use anyhow::{Context, anyhow};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -25,6 +25,8 @@ pub struct NodeCtx {
     pending_responses: Mutex<HashMap<usize, oneshot::Sender<ResponseBody>>>,
 
     req_queue: Mutex<UnboundedReceiver<Message>>,
+    //
+    // sequence_num_counter: AtomicUsize,
 }
 
 impl NodeCtx {
@@ -42,6 +44,7 @@ impl NodeCtx {
             msg_id: Default::default(),
             pending_responses: Default::default(),
             req_queue: Mutex::new(req_queue_rx),
+            // sequence_num_counter: AtomicUsize::new(0)
         });
 
         let movable = ret.clone();
@@ -144,4 +147,14 @@ impl NodeCtx {
             .await
             .with_context(|| format!("Failed to await response for msg: {}", msg_id))
     }
+
+    // pub fn gen_unique_id(&self) -> UniquePaxosId {
+    //     // Can prob be Ordering::Relaxed. But no harm in SeqCst for now. This isn't a
+    //     // performance bottleneck.
+    //     let counter = self.sequence_num_counter.fetch_add(1, Ordering::SeqCst);
+    //     UniquePaxosId {
+    //         counter,
+    //         node_id: self.node_id.clone()
+    //     }
+    // }
 }

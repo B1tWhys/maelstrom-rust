@@ -1,23 +1,30 @@
-use crate::messages::{ErrorCode, LinKvOp, ResponseBody};
+use crate::messages::{ErrorCode, LinKvOp, Message, ResponseBody};
 use std::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub struct LinKvState {
     map: HashMap<usize, usize>,
+    /// Number of transactions applied so far. This is the same as saying the next slot id to use
+    tx_count: usize,
 }
 
 // If this was a serious code base, this layer of the app wouldn't know about the wire request/response DTOs.
 // But I'm not being too precious about it today...
 impl LinKvState {
+    pub fn get_tx_count(&self) -> usize {
+        self.tx_count
+    }
+
     /// Apply an operation to the state machine and return an appropriate response body
     ///
     /// (architecturally returning the response body at this layer is questionable, but this isn't
     /// that serious)
     pub fn apply(&mut self, request_body: LinKvOp) -> ResponseBody {
+        self.tx_count += 1;
         match request_body {
-            LinKvOp::Read { key } => self.read(key),
-            LinKvOp::Write { key, value } => self.write(key, value),
-            LinKvOp::Cas { key, from, to } => self.cas(key, from, to),
+            LinKvOp::Read { key, .. } => self.read(key),
+            LinKvOp::Write { key, value, .. } => self.write(key, value),
+            LinKvOp::Cas { key, from, to, .. } => self.cas(key, from, to),
         }
     }
 

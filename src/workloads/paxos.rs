@@ -1,79 +1,33 @@
 #![allow(dead_code)] // FIXME
-
-mod log;
-mod paxos_slot;
-mod transaction;
+mod acceptor;
+pub mod proposer;
 
 use crate::lin_kv::LinKvState;
 use crate::messages::{
-    ErrorCode, LinKvOp, Message, MessageBody, PaxosSeqN, Proposal, RequestBody, ResponseBody,
+    ErrorCode, LinKvOp, Message, MessageBody, PaxosReq, RequestBody, ResponseBody, UniquePaxosId,
 };
 use crate::node_ctx::NodeCtx;
-use crate::workloads::paxos::log::Log;
-use crate::workloads::paxos::paxos_slot::PaxosSlot;
+use crate::workloads::paxos::acceptor::Acceptor;
+use crate::workloads::paxos::proposer::propose;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
-use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::sync::{Mutex, RwLock};
 use tracing::info;
-use crate::workloads::paxos::transaction::Transaction;
 
 /// Represents a node in a cluster of hosts running paxos. Encapsulates all that logic & state.
 pub struct PaxosNode {
     node_ctx: Arc<NodeCtx>,
-    /// The node id of the current leader. See [`NodeCtx::nodes`]
-    cur_leader: RwLock<String>,
-    /// The current sequence number for this paxos node. All paxos rounds/slots use this same counter
-    paxos_seq_num: AtomicUsize,
-    /// The titular key-value store. Once operations are decided in the log, they are applied (in order)
-    /// to this snapshot.
-    snapshot: RwLock<LinKvState>,
-    /// Index of the next slot in the log to apply to the snapshot (once it's ready). May be equal
-    /// to `log.len()` if all slots in the log have been applied already
-    next_slot_to_apply: AtomicUsize,
-    /// Log of the paxos slots. Each slot represents one round of paxos, corresponding to one atomic
-    /// operation on the snapshot
-    log: Arc<Log>,
-}
+    /// The titular state machine (in this case a kv store, later maybe I'll make this generic). Decided
+    /// [LinKvOp]s are applied to the state.
+    state_machine: Arc<RwLock<LinKvState>>,
 
-/// Result of phase 1 of the paxos algorithm for one slot.
-enum Phase1Result {
-    /// We successfully prepared a quorum of acceptors, and didn't discover an already accepted proposal.
-    /// We're ready to try proposing a value of our choosing using this sequence number
-    Success { slot_idx: usize, seq_num: PaxosSeqN },
-    /// We contacted a quorum of acceptors, and learned that there's already been an accepted proposal.
-    /// We're now duty bound to adopt that value for our proposal, and we'll need to use a new slot
-    /// for our desired value
-    AlreadyAccepted(Proposal),
-    /// We tried preparing the slot, but turns out it's already been fully decided (we just didn't
-    /// hear about it until now). We need to update our snapshot, and try our proposal again in
-    /// a new slot
-    AlreadyDecided(LinKvOp),
-    /// We failed to contact a quorum of nodes
-    TimedOut,
-}
+    acceptor: Arc<Mutex<Acceptor>>,
 
-enum Phase2Result {
-    /// We successfully proposed the value to a majority of approvers! Next step is to mark the
-    /// slot decided, and share the news!
-    Success { value: LinKvOp },
-    /// After our prepare (but before our proposal) someone else swept in and prepared
-    /// a new sequence number above ours, and our proposal was rejected! We need to try again with a
-    /// new sequence number. The value is the new highest sequence number (the one we lost to)
-    NTooLow(PaxosSeqN),
-    /// We tried proposing a value for this spot, but it turns out it's already been fully decided.
-    AlreadyDecided(LinKvOp),
-    /// We weren't able to contact a quorum of nodes
-    TimedOut,
-}
+    op_id_counter: Arc<AtomicUsize>,
 
-// ===== Misc utility functions =====
-impl PaxosNode {
-    /// Checks if I'm leader based on the current in-memory state. Doesn't do health checks to
-    /// make sure that the rest of the cluster agrees I'm leader
-    async fn i_think_im_leader(&self) -> bool {
-        let cur_leader = self.cur_leader.read().await;
-        cur_leader.as_ref() == self.node_ctx.node_id
-    }
+    /// Only one client request is processed at a time. Only the holder of this lock is allowed to
+    /// call propose... in fact maybe this should be in the proposer module, come to think of it...
+    proposing_lock: Arc<Mutex<()>>,
 }
 
 // ===== Message handling/overall plumbing =====
@@ -90,11 +44,10 @@ impl PaxosNode {
 
         Self {
             node_ctx,
-            cur_leader: RwLock::new(cur_leader),
-            paxos_seq_num: Default::default(),
-            snapshot: Default::default(),
-            next_slot_to_apply: Default::default(),
-            log: Arc::new(Log::new()),
+            state_machine: Default::default(),
+            acceptor: Default::default(),
+            op_id_counter: Default::default(),
+            proposing_lock: Default::default(),
         }
     }
 
@@ -102,7 +55,7 @@ impl PaxosNode {
         while let Some(message) = self.node_ctx.recv_request().await {
             let self_arc = Arc::clone(&self);
             tokio::spawn(async move {
-                let resp = self_arc.handle_request(&message).await;
+                let resp = self_arc.route_request(&message).await;
                 self_arc.node_ctx.send_response(&message, resp).await;
             });
         }
@@ -110,7 +63,7 @@ impl PaxosNode {
         Ok(())
     }
 
-    async fn handle_request(&self, message: &Message) -> ResponseBody {
+    async fn route_request(&self, message: &Message) -> ResponseBody {
         let Message {
             body:
                 MessageBody::Request {
@@ -127,11 +80,21 @@ impl PaxosNode {
         };
 
         match req_body {
-            RequestBody::LinKvOp(op) => self.handle_linkv_op(op).await,
+            RequestBody::LinKvOp(op) => self.handle_client_req(op.clone()).await,
+            RequestBody::Paxos(paxos_req) => {
+                self.handle_internal_paxos_req(paxos_req.clone()).await
+            }
             _ => ResponseBody::Error {
                 code: ErrorCode::NotSupported,
                 text: Some(format!("paxos doesn't support request: {:?}", message)),
             },
+        }
+    }
+
+    fn new_op_id(&self) -> UniquePaxosId {
+        UniquePaxosId {
+            n: self.op_id_counter.fetch_add(1, Ordering::SeqCst),
+            node_id: self.node_ctx.node_id.clone(),
         }
     }
 }
@@ -139,31 +102,36 @@ impl PaxosNode {
 // ===== Actual Paxos implementation =====
 
 impl PaxosNode {
-    async fn handle_linkv_op(&self, op: &LinKvOp) -> ResponseBody {
+    async fn handle_client_req(&self, mut op: LinKvOp) -> ResponseBody {
+        let _guard = self.proposing_lock.lock().await;
+
+        // Make this operation distinct from another request to another host in the cluster that happens
+        // to do the same thing. This is necessary for any non-idempotent operations (i.e. Cas).
+        op.set_op_id(self.new_op_id());
+
         // If there's only 1 node, we can just make the change to our snapshot. Ezpz!
         if self.node_ctx.nodes.len() == 1 {
-            let mut snapshot = self.snapshot.write().await;
+            let mut snapshot = self.state_machine.write().await;
             return snapshot.apply(op.clone());
         }
 
-        if !self.i_think_im_leader().await {
-            // Just proxy the request to the leader & let them take care of it
-            return self
-                .node_ctx
-                .send_request(
-                    self.cur_leader.read().await.clone(),
-                    RequestBody::LinKvOp(op.clone()),
-                )
-                .await
-                .expect("TODO"); // FIXME
+        // Explicit scope to make sure the read lock isn't held longer than this line, which could
+        // cause deadlocks later
+        let mut slot_idx = { self.state_machine.read().await.get_tx_count() };
+
+        loop {
+            let chosen_op = propose(&self.node_ctx, op.clone(), slot_idx).await;
+            let result = self.state_machine.write().await.apply(chosen_op.clone());
+            if chosen_op == op {
+                return result;
+            } else {
+                slot_idx += 1;
+            }
         }
+    }
 
-        let mut txn = Transaction::new(
-            self.log.clone(),
-            self.node_ctx.clone(),
-            op.clone()
-        );
-
-        txn.run().await
+    async fn handle_internal_paxos_req(&self, paxos_req: PaxosReq) -> ResponseBody {
+        let paxos_resp = self.acceptor.lock().await.handle_paxos_req(paxos_req).await;
+        ResponseBody::Paxos(paxos_resp)
     }
 }
