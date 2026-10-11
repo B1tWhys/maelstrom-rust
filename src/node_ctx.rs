@@ -1,5 +1,6 @@
 use crate::messages::{Message, MessageBody, RequestBody, ResponseBody, UniquePaxosId};
 use anyhow::{Context, anyhow};
+use log::{debug, info};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -71,7 +72,9 @@ impl NodeCtx {
                 } => {
                     let mut pending_reqs = self.pending_responses.lock().await;
                     if let Some(one_shot) = pending_reqs.remove(&in_reply_to) {
-                        one_shot.send(rsp_body).unwrap();
+                        if let Err(e) = one_shot.send(rsp_body) {
+                            debug!("Received unsolicited response. Ignoring it: {e:?}");
+                        }
                     }
                 }
             }
@@ -147,14 +150,4 @@ impl NodeCtx {
             .await
             .with_context(|| format!("Failed to await response for msg: {}", msg_id))
     }
-
-    // pub fn gen_unique_id(&self) -> UniquePaxosId {
-    //     // Can prob be Ordering::Relaxed. But no harm in SeqCst for now. This isn't a
-    //     // performance bottleneck.
-    //     let counter = self.sequence_num_counter.fetch_add(1, Ordering::SeqCst);
-    //     UniquePaxosId {
-    //         counter,
-    //         node_id: self.node_id.clone()
-    //     }
-    // }
 }
