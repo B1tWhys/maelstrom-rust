@@ -9,11 +9,11 @@ pub async fn echo(node_ctx: Arc<NodeCtx>) -> anyhow::Result<()> {
     while let Some(req) = &node_ctx.recv_request().await {
         debug!(?req, "Echo received request");
         let Message {
-            src,
-            dest,
+            src: _,
+            dest: _,
             body:
                 MessageBody::Request {
-                    msg_id,
+                    msg_id: _,
                     req_body: RequestBody::Echo { echo },
                 },
         } = req

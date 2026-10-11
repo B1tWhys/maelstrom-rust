@@ -1,11 +1,10 @@
-use crate::messages::{Message, MessageBody, RequestBody, ResponseBody, UniquePaxosId};
-use anyhow::{Context, anyhow};
-use log::{debug, info};
-use std::collections::{HashMap, HashSet};
+use crate::messages::{Message, MessageBody, RequestBody, ResponseBody};
+use anyhow::Context;
+use log::debug;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-use tokio::sync::oneshot::Sender;
 use tokio::sync::{Mutex, oneshot};
 use tracing::warn;
 
@@ -71,10 +70,10 @@ impl NodeCtx {
                     rsp_body,
                 } => {
                     let mut pending_reqs = self.pending_responses.lock().await;
-                    if let Some(one_shot) = pending_reqs.remove(&in_reply_to) {
-                        if let Err(e) = one_shot.send(rsp_body) {
-                            debug!("Received unsolicited response. Ignoring it: {e:?}");
-                        }
+                    if let Some(one_shot) = pending_reqs.remove(&in_reply_to)
+                        && let Err(e) = one_shot.send(rsp_body)
+                    {
+                        debug!("Received unsolicited response. Ignoring it: {e:?}");
                     }
                 }
             }

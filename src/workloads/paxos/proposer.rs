@@ -19,7 +19,7 @@ enum PaxosPhase {
 /// responsibility to time out, and/or to retry with a new slot if the chosen value isn't what was
 /// intended
 pub async fn propose(node_ctx: &Arc<NodeCtx>, op: LinKvOp, slot_idx: usize) -> LinKvOp {
-    let seq_num = UniquePaxosId::new(&node_ctx, 0);
+    let seq_num = UniquePaxosId::new(node_ctx, 0);
     let mut state = PaxosPhase::Prepare(Proposal {
         slot_idx,
         seq_num,

@@ -16,7 +16,6 @@ use anyhow::{Context, anyhow, bail};
 use std::io;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::Mutex;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{Level, debug, error, info, warn};
@@ -128,7 +127,7 @@ async fn init_node_ctx(
     let Some(Message {
         body:
             MessageBody::Request {
-                msg_id,
+                msg_id: _,
                 req_body: RequestBody::Init(Init { node_id, node_ids }),
             },
         ..

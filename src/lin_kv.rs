@@ -1,4 +1,4 @@
-use crate::messages::{ErrorCode, LinKvOp, Message, ResponseBody};
+use crate::messages::{ErrorCode, LinKvOp, ResponseBody};
 use std::collections::HashMap;
 
 #[derive(Debug, Default)]

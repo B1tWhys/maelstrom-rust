@@ -1,6 +1,4 @@
-use crate::messages::{
-    LinKvOp, PaxosNack, PaxosReq, PaxosRsp, Proposal, ResponseBody, UniquePaxosId,
-};
+use crate::messages::{LinKvOp, PaxosNack, PaxosReq, PaxosRsp, Proposal, UniquePaxosId};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::error;
