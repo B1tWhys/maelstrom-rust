@@ -28,10 +28,10 @@ async fn main() -> anyhow::Result<()> {
     let workload = select_workload()?;
     info!(?workload, "Starting up");
 
-    let stdin = connect_stdin();
+    let (stdin_tx, stdin_rx) = connect_stdin();
     let stdout = connect_stdout();
 
-    let node_ctx = init_node_ctx(stdin, stdout).await?;
+    let node_ctx = init_node_ctx(stdin_rx, stdin_tx, stdout).await?;
 
     info!("Initialized node context");
 
@@ -79,11 +79,12 @@ fn select_workload() -> anyhow::Result<Workload> {
     }
 }
 
-fn connect_stdin() -> UnboundedReceiver<Message> {
+fn connect_stdin() -> (UnboundedSender<Message>, UnboundedReceiver<Message>) {
     let (req_tx, req_rx) = tokio::sync::mpsc::unbounded_channel();
 
     let mut stdin = BufReader::new(tokio::io::stdin()).lines();
 
+    let moveable_req_tx = req_tx.clone();
     tokio::task::spawn(async move {
         while let Ok(Some(line)) = stdin.next_line().await {
             let msg = match serde_json::from_str::<Message>(&line) {
@@ -93,13 +94,13 @@ fn connect_stdin() -> UnboundedReceiver<Message> {
                     continue;
                 }
             };
-            req_tx
+            moveable_req_tx
                 .send(msg)
                 .expect("Message received without any consumers wired up to handle it!");
         }
     });
 
-    req_rx
+    (req_tx, req_rx)
 }
 
 fn connect_stdout() -> UnboundedSender<Message> {
@@ -120,10 +121,11 @@ fn connect_stdout() -> UnboundedSender<Message> {
 }
 
 async fn init_node_ctx(
-    mut msgs_in: UnboundedReceiver<Message>,
+    mut msgs_in_rx: UnboundedReceiver<Message>,
+    msgs_in_tx: UnboundedSender<Message>,
     msgs_out: UnboundedSender<Message>,
 ) -> anyhow::Result<Arc<NodeCtx>> {
-    let msg = msgs_in.recv().await;
+    let msg = msgs_in_rx.recv().await;
     let Some(Message {
         body:
             MessageBody::Request {
@@ -136,7 +138,13 @@ async fn init_node_ctx(
         bail!("Failed to receive an init message!")
     };
 
-    let node_ctx = NodeCtx::new(node_id.clone(), node_ids.clone(), msgs_in, msgs_out);
+    let node_ctx = NodeCtx::new(
+        node_id.clone(),
+        node_ids.clone(),
+        msgs_in_rx,
+        msgs_in_tx,
+        msgs_out,
+    );
 
     node_ctx
         .send_response(&msg.unwrap(), ResponseBody::InitOk)

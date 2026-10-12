@@ -19,14 +19,22 @@ pub struct NodeCtx {
     /// Sender for outbound messages
     msgs_out: UnboundedSender<Message>,
 
+    /// This sender injects messages into the inbound message receive flow.
+    ///
+    /// When we try to send a message to the current node id, instead of writing it to stdout & letting
+    /// maelstrom do the round-tripping (possibly with delay & counting against efficiency metrics),
+    /// we just send the message through here & skip the maelstrom round-trip.
+    msgs_in_tx: UnboundedSender<Message>,
+
+    /// Used for calculating unique (to this node) message ids
     msg_id: AtomicUsize,
 
     /// Oneshot channels corresponding to outbound requests that we're waiting to hear back about
     pending_responses: Mutex<HashMap<usize, oneshot::Sender<ResponseBody>>>,
 
-    req_queue: Mutex<UnboundedReceiver<Message>>,
-    //
-    // sequence_num_counter: AtomicUsize,
+    /// Queue of parsed requests waiting to be handled. To get queue semantics (when consuming from
+    /// multiple tasks) this is a `Mutex<mpsc::UnboundedReceiver>`, rather than using a broadcast.
+    req_queue_rx: Mutex<UnboundedReceiver<Message>>,
 }
 
 impl NodeCtx {
@@ -34,6 +42,7 @@ impl NodeCtx {
         node_id: String,
         nodes: Vec<String>,
         msgs_in: UnboundedReceiver<Message>,
+        msgs_in_tx: UnboundedSender<Message>,
         msgs_out: UnboundedSender<Message>,
     ) -> Arc<Self> {
         let (req_queue_tx, req_queue_rx) = unbounded_channel();
@@ -41,10 +50,10 @@ impl NodeCtx {
             node_id,
             nodes,
             msgs_out,
+            msgs_in_tx,
             msg_id: Default::default(),
             pending_responses: Default::default(),
-            req_queue: Mutex::new(req_queue_rx),
-            // sequence_num_counter: AtomicUsize::new(0)
+            req_queue_rx: Mutex::new(req_queue_rx),
         });
 
         let movable = ret.clone();
@@ -91,7 +100,7 @@ impl NodeCtx {
     }
 
     pub async fn recv_request(&self) -> Option<Message> {
-        self.req_queue.lock().await.recv().await
+        self.req_queue_rx.lock().await.recv().await
     }
 
     pub async fn send_response(&self, request: &Message, rsp_body: ResponseBody) {
@@ -114,11 +123,19 @@ impl NodeCtx {
                 rsp_body,
             },
         };
-        if let Err(e) = self.msgs_out.send(msg) {
+
+        let result = if msg.dest == self.node_id {
+            // Skip the stdout/maelstrom/stdin round-trip, just put the message directly into the inbound mpsc channel
+            self.msgs_in_tx.send(msg)
+        } else {
+            self.msgs_out.send(msg)
+        };
+
+        if let Err(e) = result {
             warn!(
                 ?request,
                 %e,
-                "Tried to output to stdout but the sender was closed"
+                "Tried to output a message but the sender was closed"
             )
         }
     }
@@ -136,14 +153,21 @@ impl NodeCtx {
             .await
             .insert(msg_id, oneshot_tx);
 
-        self.msgs_out.send(Message {
+        let msg = Message {
             src: self.node_id.clone(),
-            dest,
+            dest: dest.clone(),
             body: MessageBody::Request {
                 msg_id,
                 req_body: request_body,
             },
-        })?;
+        };
+
+        if dest == self.node_id {
+            // Skip the stdout/maelstrom/stdin round-trip, just put the message directly into the inbound mpsc channel
+            self.msgs_in_tx.send(msg)?;
+        } else {
+            self.msgs_out.send(msg)?;
+        }
 
         oneshot_rx
             .await

@@ -11,8 +11,12 @@ use crate::workloads::paxos::acceptor::Acceptor;
 use crate::workloads::paxos::proposer::propose;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+use tokio::select;
 use tokio::sync::{Mutex, RwLock};
 use tracing::info;
+
+const TX_TIMEOUT: Duration = Duration::from_millis(100);
 
 /// Represents a node in a cluster of hosts running paxos. Encapsulates all that logic & state.
 pub struct PaxosNode {
@@ -122,10 +126,21 @@ impl PaxosNode {
         loop {
             let chosen_op = propose(&self.node_ctx, op.clone(), slot_idx).await;
             let result = self.state_machine.write().await.apply(chosen_op.clone());
-            if chosen_op == op {
-                return result;
-            } else {
-                slot_idx += 1;
+            select! {
+                chosen_op = propose(&self.node_ctx, op.clone(), slot_idx) => {
+                    if chosen_op == op {
+                        return result;
+                    } else {
+                        slot_idx += 1;
+                    }
+                },
+                _ = tokio::time::sleep(TX_TIMEOUT) => {
+                    info!("Tx timed out. Returning error");
+                    return ResponseBody::Error {
+                        code: ErrorCode::Timeout,
+                        text: None
+                    }
+                }
             }
         }
     }
